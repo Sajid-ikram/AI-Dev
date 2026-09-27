@@ -1,0 +1,2 @@
+# LF everywhere: shell scripts are piped into Linux containers, and git on Windows would otherwise check out CRLF.
+* text=auto eol=lf

@@ -1,0 +1,11 @@
+node_modules/
+workspace/
+.env
+*.log
+
+# Real project configs hold private repo URLs; only the example is committed.
+projects/*.yaml
+!projects/example.yaml
+
+# Target projects live next to the tool but are separate repos.
+potato-proto/

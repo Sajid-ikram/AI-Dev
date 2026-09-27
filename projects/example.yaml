@@ -1,0 +1,32 @@
+# Copy to projects/<name>.yaml and fill in. Real project configs are gitignored.
+
+name: my-app
+# Issues whose key starts with this (MYAPP-12) belong to this project.
+jiraProject: MYAPP
+
+repo:
+  url: https://bitbucket.org/<workspace>/<repo>.git
+  baseBranch: main
+  # bitbucket: clone with BITBUCKET_TOKEN from .env. none: public or local repository.
+  auth: bitbucket
+
+# Image the agents run in: aidev-node, aidev-flutter or aidev-base. Build with `aidev build`.
+image: aidev-node
+
+# Shell commands run from the repo root. All must pass before a pull request is opened.
+checks:
+  - npm ci
+  - npm test
+
+# Everything below is optional; these are the defaults.
+worker:
+  model: fable          # a Claude Code alias (fable, opus, sonnet) or a full model name
+  fallbackModel: opus   # used if the model is overloaded or not on your plan; "" turns it off
+  # effort: xhigh       # low, medium, high, xhigh or max; unset uses Claude Code's default
+  maxTurns: 200
+  timeoutMinutes: 90
+
+limits:
+  cpus: 4
+  memory: 8g
+  pids: 2048
