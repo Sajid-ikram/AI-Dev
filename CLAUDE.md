@@ -28,7 +28,7 @@ A personal tool that picks up Jira tickets and sends each one to a worker agent,
 - **Hard gate:** the project's `checks` commands must pass before any PR is opened.
 - **Trigger:** poll Jira with JQL every 1–2 minutes, so a home PC needs no inbound ports.
 - **Usage limits:** subscription limits are shared with the owner's interactive Claude use. On a `system/api_retry` event with `error: "rate_limit"`, pause the job, then continue later with `--resume <session_id>`. A rejected request also shows up as `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":<unix seconds>,"errorCode":...}}`, followed by a result with `is_error: true`, `api_error_status: 429` and `api_error_code`. That result's `subtype` can still say `success`, so check `is_error`. Keep `CLAUDE_CONFIG_DIR` in the job folder so the session outlives the container.
-- **Platforms:** Jira Cloud (email + API token) and Bitbucket Cloud (repository access token, REST 2.0 pull requests).
+- **Platforms:** Jira Cloud (email + API token) and Bitbucket Cloud (REST 2.0 pull requests). `BITBUCKET_TOKEN` can be either kind: an Atlassian API token with Bitbucket scopes acts as the owner's account, so PRs show the owner as author (git username `x-bitbucket-api-token-auth`); a repository access token acts as a separate bot (git username `x-token-auth`). aidev tells them apart by prefix (`ATATT` vs `ATCTT`). Both accept `Authorization: Bearer` for REST.
 - **Models:** configurable per role with `--model`. Default to the strongest model the subscription allows.
 
 ## Planned layout

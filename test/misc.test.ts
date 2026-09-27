@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseProject } from '../src/config.ts';
-import { branchName, slugify } from '../src/git.ts';
+import { bitbucketGitUser, branchName, slugify } from '../src/git.ts';
 import { renderTemplate, workerPrompt } from '../src/prompts.ts';
 
 test('slugify makes short, safe branch names', () => {
@@ -11,6 +11,11 @@ test('slugify makes short, safe branch names', () => {
   assert.ok(slugify('x'.repeat(100)).length <= 40);
   assert.equal(branchName('POT-1', 'Add dark mode'), 'ai/POT-1-add-dark-mode');
   assert.equal(branchName('POT-1', '!!!'), 'ai/POT-1');
+});
+
+test('bitbucketGitUser picks the git username for each kind of token', () => {
+  assert.equal(bitbucketGitUser('ATATT3xFfGF0example'), 'x-bitbucket-api-token-auth');
+  assert.equal(bitbucketGitUser('ATCTT3xFfGN0example'), 'x-token-auth');
 });
 
 test('renderTemplate fills placeholders without expanding ones inside values', () => {

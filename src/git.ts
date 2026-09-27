@@ -16,7 +16,7 @@ function remoteEnv(project: ProjectConfig): NodeJS.ProcessEnv {
   const config: [string, string][] = [['credential.helper', '']];
   if (project.repo.auth === 'bitbucket') {
     const token = requireEnv('BITBUCKET_TOKEN', `to clone ${project.repo.url}`);
-    const basic = Buffer.from(`x-token-auth:${token}`).toString('base64');
+    const basic = Buffer.from(`${bitbucketGitUser(token)}:${token}`).toString('base64');
     config.push(['http.extraHeader', `Authorization: Basic ${basic}`]);
   }
   const env: NodeJS.ProcessEnv = {
@@ -30,6 +30,14 @@ function remoteEnv(project: ProjectConfig): NodeJS.ProcessEnv {
     env[`GIT_CONFIG_VALUE_${i}`] = value;
   });
   return env;
+}
+
+/**
+ * Git's username for a Bitbucket token. An Atlassian API token (ATATT...) acts as the owner's
+ * account; a repository access token acts as a bot tied to one repository.
+ */
+export function bitbucketGitUser(token: string): string {
+  return token.startsWith('ATATT') ? 'x-bitbucket-api-token-auth' : 'x-token-auth';
 }
 
 /** Keeps a bare mirror of the project's repo in workspace/mirrors, so job clones don't hit the network. */
