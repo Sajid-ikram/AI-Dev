@@ -41,7 +41,7 @@ async function api(path: string, init: { method?: string; body?: unknown } = {})
  */
 export async function openPullRequest(
   repo: BitbucketRepo,
-  pr: { branch: string; destination: string; title: string; description: string },
+  pr: { branch: string; destination: string; title: string; description: string; reviewers: string[] },
 ): Promise<{ url: string; id: number; created: boolean }> {
   const base = `/repositories/${repo.workspace}/${repo.slug}/pullrequests`;
   const query = encodeURIComponent(`source.branch.name="${pr.branch}" AND state="OPEN"`);
@@ -54,8 +54,14 @@ export async function openPullRequest(
       description: pr.description,
       source: { branch: { name: pr.branch } },
       destination: { branch: { name: pr.destination } },
+      reviewers: reviewerRefs(pr.reviewers),
       close_source_branch: true,
     },
   });
   return { url: created.links.html.href, id: created.id, created: true };
+}
+
+/** Bitbucket names a user by account ID, or by UUID in braces. */
+export function reviewerRefs(ids: string[]): ({ account_id: string } | { uuid: string })[] {
+  return ids.map((id) => (id.startsWith('{') ? { uuid: id } : { account_id: id }));
 }

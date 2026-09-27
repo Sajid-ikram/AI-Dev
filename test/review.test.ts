@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bitbucketRepo } from '../src/bitbucket.ts';
+import { bitbucketRepo, reviewerRefs } from '../src/bitbucket.ts';
 import { checksScript, parseChecksOutput } from '../src/checks.ts';
 import { parseProject } from '../src/config.ts';
 import { textToAdf, type Ticket } from '../src/jira.ts';
@@ -90,6 +90,13 @@ test('textToAdf makes paragraphs, line breaks and links', () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'Bye' }] },
     ],
   });
+});
+
+test('pull request reviewers go to Bitbucket by account ID or UUID', () => {
+  assert.deepEqual(reviewerRefs(['712020:abc-1', '{2388bc8b-80d1}']), [{ account_id: '712020:abc-1' }, { uuid: '{2388bc8b-80d1}' }]);
+  const withReviewers = parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', prReviewers: ['712020:abc-1'] });
+  assert.deepEqual(withReviewers.prReviewers, ['712020:abc-1']);
+  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i' }).prReviewers, []);
 });
 
 test('bitbucketRepo reads Bitbucket Cloud URLs only', () => {

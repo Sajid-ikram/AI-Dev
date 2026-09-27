@@ -18,6 +18,12 @@ checks:
   - npm ci
   - npm test
 
+# People added as reviewers on every pull request, by Atlassian account ID. Jira and
+# Bitbucket share the ID: it's the end of the person's Jira profile address,
+# https://<site>.atlassian.net/jira/people/<account ID>. Bitbucket won't add a pull
+# request's own author, so leave yourself out if BITBUCKET_TOKEN is your own API token.
+prReviewers: []
+
 # Everything below is optional; these are the defaults.
 worker:
   model: opus           # a Claude Code alias (opus, sonnet, fable) or a full model name; fable needs usage credits on a subscription

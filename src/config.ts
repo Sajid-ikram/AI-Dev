@@ -83,6 +83,11 @@ export interface ProjectConfig {
   image: string;
   /** Shell commands run from the repo root. All must pass before a pull request is opened. */
   checks: string[];
+  /**
+   * People added as reviewers on every pull request: Atlassian account IDs, which Jira and
+   * Bitbucket share. Bitbucket won't take the pull request's own author.
+   */
+  prReviewers: string[];
   worker: RoleConfig;
   reviewer: RoleConfig;
   limits: Limits;
@@ -166,6 +171,7 @@ export function parseProject(file: string, data: unknown): ProjectConfig {
       },
       image: asStr(raw.image, 'image'),
       checks: asStrList(raw.checks, 'checks'),
+      prReviewers: asStrList(raw.prReviewers, 'prReviewers'),
       worker: parseRole(raw.worker, 'worker', DEFAULT_ROLE),
       reviewer: parseRole(raw.reviewer, 'reviewer', DEFAULT_REVIEWER),
       limits: {

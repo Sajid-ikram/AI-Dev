@@ -24,6 +24,7 @@ export async function publish(job: JobRecord, project: ProjectConfig, ticket: Ti
     destination: job.baseBranch,
     title: `${ticket.key}: ${ticket.summary}`,
     description: prDescription(job, ticket),
+    reviewers: project.prReviewers,
   });
   job.pullRequest = { url: pr.url, id: pr.id };
   job.outcome = 'published';
