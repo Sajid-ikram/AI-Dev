@@ -90,8 +90,12 @@ export async function runTicket(opts: RunOptions): Promise<number> {
   });
 
   await showResult({ key, branch, baseSha, job, result, work, elapsedMs: finishedAt.getTime() - startedAt.getTime() });
-  const blocked = result.text?.trimStart().startsWith('BLOCKED:') ?? false;
-  return !result.isError && !result.stopped && !blocked && work.commits.length > 0 ? 0 : 1;
+  return !result.isError && !result.stopped && !isBlocked(result) && work.commits.length > 0 ? 0 : 1;
+}
+
+/** The worker prompt asks it to start its final message with BLOCKED: when it can't go on. */
+function isBlocked(result: AgentResult): boolean {
+  return result.text?.trimStart().startsWith('BLOCKED:') ?? false;
 }
 
 async function showResult(r: {
@@ -110,7 +114,9 @@ async function showResult(r: {
       ? `stopped (${result.stopped})`
       : result.error
         ? `failed (${result.error})`
-        : (result.subtype ?? `no result, exit code ${result.exitCode}`),
+        : isBlocked(result)
+          ? 'blocked, needs an answer'
+          : (result.subtype ?? `no result, exit code ${result.exitCode}`),
   ];
   if (result.numTurns !== undefined) facts.push(`${result.numTurns} turns`);
   facts.push(formatDuration(r.elapsedMs));
@@ -120,7 +126,7 @@ async function showResult(r: {
   if (work.commits.length) {
     console.log(`\nCommits on ${r.branch}:`);
     console.log(indent(work.commits.join('\n')));
-  } else {
+  } else if (!isBlocked(result)) {
     warn('The worker made no commits.');
   }
   if (work.badMessages.length) warn(`These commit messages don't start with ${r.key}:\n${indent(work.badMessages.join('\n'))}`);

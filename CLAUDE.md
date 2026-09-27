@@ -6,9 +6,9 @@ A personal tool that picks up Jira tickets and sends each one to a worker agent,
 
 - Phase 0 code is written and tested: `aidev build`, `aidev run <KEY>` and `aidev sandbox-test` (usage in README.md). `aidev run` was tested end to end with a stand-in `claude` script, `aidev sandbox-test` passes on every image, and potato-proto's checks pass in `aidev-flutter` (about 30 s over the Windows bind mount).
 - Phase 0's done test passed on 2026-09-27: in `aidev sandbox-test --agent`, Claude (Opus 5.5, on the subscription token) tried every route it could find and couldn't list `C:\Users`.
-- Left in Phase 0: one `aidev run` on a real potato-proto ticket (from Jira or `--ticket-file`).
+- First real run on 2026-09-27: `aidev run KAN-1` went Jira → Bitbucket mirror → Opus 5.5 in `aidev-flutter`. The ticket ("Just a test" / "Is it working?") described no change, so the worker correctly stopped with `BLOCKED:` (2 turns, 14 s). A real run that ends in commits and a diff hasn't happened yet; it needs a ticket that asks for a real change.
 - potato-proto is a private Bitbucket repo; its URL is in the gitignored `projects/potato-proto.yaml`. The Flutter app is on `main`, in `app/`. On 2026-09-27 the workspace was briefly read-only (the push returned HTTP 402 "exceeded its user limit"). It became writable again the same day, and the repository access token pushed the app.
-- `.env` is filled in except `JIRA_BASE_URL`, which still has the example value. The Jira project key (`jiraProject`, a guess of `POT`) isn't confirmed.
+- `.env` is complete, and the Jira, Bitbucket and Claude credentials all work. potato-proto's tickets are in Jira project `KAN` ("Potato Proto"). The owner moves a ticket to the status **AI Tasks** to hand it to the AI, so Phase 2's poller JQL should look for `project = KAN AND status = "AI Tasks"`.
 - The worker defaults to Opus, with Sonnet as the fallback when Opus is overloaded. On the owner's subscription, Fable needs paid usage credits (the API answers `credits_required`), so it's opt-in per project.
 - The local `potato-proto/` folder is the owner's working copy and a *target* project, not part of the tool, so it stays out of the tool's git repo. A demo Node.js project will be added later, also on Bitbucket. The tool always clones from Bitbucket; agents never work in the owner's own copies.
 
