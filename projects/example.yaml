@@ -24,6 +24,10 @@ checks:
 # request's own author, so leave yourself out if BITBUCKET_TOKEN is your own API token.
 prReviewers: []
 
+# Jira statuses aidev moves tickets to. Leave one out and the ticket stays where it is.
+jiraStatus:
+  prOpened: In Review   # once the pull request is open
+
 # Everything below is optional; these are the defaults.
 worker:
   model: opus           # a Claude Code alias (opus, sonnet, fable) or a full model name; fable needs usage credits on a subscription

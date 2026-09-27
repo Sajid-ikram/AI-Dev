@@ -45,13 +45,42 @@ async function jiraRequest(key: string, path: string, init: { method?: string; b
   }
   if (res.status === 404) throw new Error(`Jira issue ${key} doesn't exist, or this account can't see it.`);
   if (!res.ok) throw new Error(`Jira returned HTTP ${res.status} for ${key}: ${(await res.text()).slice(0, 300)}`);
-  return res.json();
+  // A transition answers 204 with no body.
+  return res.status === 204 ? undefined : res.json();
 }
 
 export async function fetchTicket(key: string): Promise<Ticket> {
   const fields = 'summary,description,issuetype,status,priority,labels,comment';
   const issue = await jiraRequest(key, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`);
   return ticketFromIssue(issue as JiraIssue, jiraBaseUrl());
+}
+
+interface Transition {
+  id: string;
+  name: string;
+  to: { name: string };
+}
+
+/**
+ * Moves the issue to the status named `status` (case doesn't matter), using whichever workflow
+ * transition leads there. Resolves to false when it was already there.
+ */
+export async function moveTicket(key: string, status: string): Promise<boolean> {
+  const issuePath = `/rest/api/3/issue/${encodeURIComponent(key)}`;
+  const current = ((await jiraRequest(key, `${issuePath}?fields=status`)) as { fields: { status: { name: string } } }).fields.status.name;
+  if (current.toLowerCase() === status.toLowerCase()) return false;
+  const { transitions } = (await jiraRequest(key, `${issuePath}/transitions`)) as { transitions: Transition[] };
+  const transition = pickTransition(transitions, status);
+  if (!transition) {
+    const targets = transitions.map((t) => t.to.name).join(', ');
+    throw new Error(`${key} can't move from "${current}" to "${status}". Its workflow allows: ${targets || 'nothing'}.`);
+  }
+  await jiraRequest(key, `${issuePath}/transitions`, { method: 'POST', body: { transition: { id: transition.id } } });
+  return true;
+}
+
+export function pickTransition(transitions: Transition[], status: string): Transition | undefined {
+  return transitions.find((t) => t.to.name.toLowerCase() === status.toLowerCase());
 }
 
 /** Adds a comment to the issue. Blank lines separate paragraphs, and URLs become links. */

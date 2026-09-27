@@ -88,6 +88,11 @@ export interface ProjectConfig {
    * Bitbucket share. Bitbucket won't take the pull request's own author.
    */
   prReviewers: string[];
+  /** Jira statuses aidev moves tickets to. Each is optional; without one, the ticket stays put. */
+  jiraStatus: {
+    /** Where a ticket goes once its pull request is open, such as "In Review". */
+    prOpened?: string;
+  };
   worker: RoleConfig;
   reviewer: RoleConfig;
   limits: Limits;
@@ -172,6 +177,7 @@ export function parseProject(file: string, data: unknown): ProjectConfig {
       image: asStr(raw.image, 'image'),
       checks: asStrList(raw.checks, 'checks'),
       prReviewers: asStrList(raw.prReviewers, 'prReviewers'),
+      jiraStatus: { prOpened: asOptStr(asObj(raw.jiraStatus, 'jiraStatus').prOpened, 'jiraStatus.prOpened') },
       worker: parseRole(raw.worker, 'worker', DEFAULT_ROLE),
       reviewer: parseRole(raw.reviewer, 'reviewer', DEFAULT_REVIEWER),
       limits: {

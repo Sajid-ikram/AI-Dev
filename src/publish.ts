@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { bitbucketRepo, openPullRequest } from './bitbucket.ts';
 import { assertIssueKey, jobPaths, readProject, type ProjectConfig } from './config.ts';
 import { pushBranch } from './git.ts';
-import { addComment, type Ticket } from './jira.ts';
+import { addComment, moveTicket, type Ticket } from './jira.ts';
 import { readJob, writeJob, type JobRecord } from './job.ts';
 import { formatIssues } from './review.ts';
 import { dim, ok, step, warn } from './ui.ts';
@@ -41,6 +41,18 @@ export async function publish(job: JobRecord, project: ProjectConfig, ticket: Ti
       .filter(Boolean)
       .join('\n\n'),
   );
+  if (project.jiraStatus.prOpened) await moveJira(ticket, project.jiraStatus.prOpened);
+}
+
+/** Moves the ticket in Jira, if it came from Jira. A failed move is only a warning. */
+async function moveJira(ticket: Ticket, status: string): Promise<void> {
+  if (!ticket.url) return;
+  try {
+    const moved = await moveTicket(ticket.key, status);
+    console.log(dim(moved ? `Moved ${ticket.key} to "${status}" in Jira.` : `${ticket.key} is already "${status}" in Jira.`));
+  } catch (err) {
+    warn(`Couldn't move ${ticket.key} to "${status}" in Jira: ${(err as Error).message}`);
+  }
 }
 
 /** `aidev publish <KEY>`: publishes an approved job again, for example after a network or Bitbucket failure. */

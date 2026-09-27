@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { bitbucketRepo, reviewerRefs } from '../src/bitbucket.ts';
 import { checksScript, parseChecksOutput } from '../src/checks.ts';
 import { parseProject } from '../src/config.ts';
-import { textToAdf, type Ticket } from '../src/jira.ts';
+import { pickTransition, textToAdf, type Ticket } from '../src/jira.ts';
 import type { JobRecord } from '../src/job.ts';
 import { reviewerPrompt, workerFixPrompt } from '../src/prompts.ts';
 import { prDescription } from '../src/publish.ts';
@@ -97,6 +97,17 @@ test('pull request reviewers go to Bitbucket by account ID or UUID', () => {
   const withReviewers = parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', prReviewers: ['712020:abc-1'] });
   assert.deepEqual(withReviewers.prReviewers, ['712020:abc-1']);
   assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i' }).prReviewers, []);
+});
+
+test('Jira moves pick the transition by its target status', () => {
+  const transitions = [
+    { id: '21', name: 'Start', to: { name: 'In Progress' } },
+    { id: '31', name: 'Review it', to: { name: 'In Review' } },
+  ];
+  assert.equal(pickTransition(transitions, 'in review')?.id, '31');
+  assert.equal(pickTransition(transitions, 'Done'), undefined);
+  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', jiraStatus: { prOpened: 'In Review' } }).jiraStatus, { prOpened: 'In Review' });
+  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i' }).jiraStatus, { prOpened: undefined });
 });
 
 test('bitbucketRepo reads Bitbucket Cloud URLs only', () => {
