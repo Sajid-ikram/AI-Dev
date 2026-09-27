@@ -1,6 +1,6 @@
 # aidev
 
-aidev takes a Jira ticket and has a Claude Code agent implement it inside a locked-down Docker container. A second, independent agent reviews the work, the project's checks must pass, and then aidev opens a Bitbucket pull request and comments on the ticket. A Jira poller comes in a later phase. [CLAUDE.md](CLAUDE.md) has the design and the roadmap.
+aidev watches Jira for tickets and has a Claude Code agent implement each one inside a locked-down Docker container. A second, independent agent reviews the work, the project's checks must pass, and then aidev opens a Bitbucket pull request and updates the ticket. [CLAUDE.md](CLAUDE.md) has the design and the roadmap.
 
 ## Requirements
 
@@ -18,6 +18,26 @@ aidev takes a Jira ticket and has a Claude Code agent implement it inside a lock
 
 ## Usage
 
+### Hands-off: `aidev watch`
+
+```
+aidev watch
+```
+
+Leave this running in a terminal. Every 90 seconds (`--interval` changes it), it looks in Jira for tickets in each project's `jiraStatus.pickUp` status, such as "AI Tasks", and works through them one at a time, as `aidev run` below does. The ticket moves through the board as it goes:
+
+| When | The ticket moves to (`jiraStatus`) |
+|---|---|
+| aidev starts on it | `working`, such as "In Progress" |
+| its pull request is open | `prOpened`, such as "In Review" |
+| aidev can't finish (it needs an answer, failed review 3 times, or broke) | `stuck`, such as "To Do", with a comment saying why |
+
+To have aidev try a stuck ticket again, answer or fix the ticket, then move it back to the pick-up status.
+
+Jobs pause instead of failing when a usage limit cuts them off. The subscription's limits are shared with your own Claude use. `aidev watch` continues a paused job once its limit resets, and starts nothing new until then. It also continues any job that a crash, a restart or Ctrl+C cut off. The first Ctrl+C stops after the current step; a second one quits at once.
+
+### One ticket: `aidev run`
+
 ```
 aidev run POT-12
 ```
@@ -34,9 +54,10 @@ This does the following:
    - **Approved:** aidev pushes the approved commit, opens a pull request and links it in a Jira comment.
    - **Blocked:** the worker needs an answer, and aidev posts its question on the ticket.
    - **Escalated:** 3 rounds went by without approval, so aidev hands the ticket to a person with the latest findings.
-   - **Failed:** an error or a time limit stopped the run.
+   - **Failed:** an error, a time limit or an agent going in circles stopped the run.
+   - **Paused:** a usage limit or Ctrl+C stopped it partway. `aidev resume POT-12` continues where it stopped.
 
-Add `--local` to do everything except push, open the pull request and comment on Jira. `aidev publish POT-12` then publishes an approved job. It also retries a publish that failed, for example because Bitbucket was down.
+Add `--local` to do everything except push, open the pull request and update Jira. `aidev publish POT-12` then publishes an approved job. It also retries a publish that failed, for example because Bitbucket was down.
 
 Everything is kept in `workspace/jobs/POT-12/`: the ticket, `job.json` (every round's result and verdict), `diff.patch`, the clone in `work/`, a fresh clone per round in `review-N/`, and in `logs/` every prompt, agent event stream and check output. To start a ticket over, add `--fresh`.
 
@@ -48,6 +69,13 @@ The project is picked by matching the issue key to `jiraProject` in `projects/*.
 - The container runs as a non-root user, with all Linux capabilities dropped, `no-new-privileges`, CPU, memory and process limits, and no Docker socket.
 - The only secret inside is the Claude token. Jira and Bitbucket credentials stay with the orchestrator, which does all pushing.
 - The container can still reach the network, including services on your PC. Phase 4 adds an egress allowlist.
+
+On top of the container, a watchdog checks each tool call before it runs. It's a Claude Code hook in managed settings, which the repo's own settings can't override, and it's mounted read-only from `src/watchdog/`. It blocks:
+
+- edits to protected paths: `.git`, `.claude`, CI config, `.env` files, keystores, and any `protectedPaths` the project adds;
+- `git push`, skipping commit hooks, and deleting the whole repository.
+
+aidev also checks every round's commits for protected files, however they were changed. It stops an agent that makes the same tool call 5 times in a row, or prints nothing for 15 minutes.
 
 `aidev sandbox-test` checks all of this in a real container. Pass `--image aidev-flutter` to check another image.
 

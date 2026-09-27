@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runAgent } from './agent.ts';
 import { DEFAULT_LIMITS, DEFAULT_ROLE, PROMPTS_DIR, ROOT, WORKSPACE, claudeAuthVar } from './config.ts';
-import { assertDocker, dockerRunArgs, imageExists } from './docker.ts';
+import { WATCHDOG_MOUNTS, assertDocker, dockerRunArgs, imageExists } from './docker.ts';
+import { DEFAULT_PROTECTED_PATHS } from './watchdog/policy.ts';
 import { exec } from './exec.ts';
 import { dim, fail, green, ok, red, step } from './ui.ts';
 
@@ -37,10 +38,7 @@ export async function sandboxTest(opts: { image: string; agent: boolean }): Prom
   const args = dockerRunArgs({
     name: `aidev-sandbox-test-${Date.now().toString(36)}`,
     image: opts.image,
-    mounts: [
-      { source: work, target: '/work' },
-      { source: claudeDir, target: '/claude' },
-    ],
+    mounts: [{ source: work, target: '/work' }, { source: claudeDir, target: '/claude' }, ...WATCHDOG_MOUNTS],
     env: authVar ? [authVar] : [],
     limits: DEFAULT_LIMITS,
     labels: { 'aidev.role': 'sandbox-test' },
@@ -76,6 +74,7 @@ export async function sandboxTest(opts: { image: string; agent: boolean }): Prom
       config: { ...DEFAULT_ROLE, maxTurns: 30, timeoutMinutes: 10 },
       limits: DEFAULT_LIMITS,
       authVar,
+      protectedPaths: DEFAULT_PROTECTED_PATHS,
     });
     if (result.text) console.log(`\n${result.text}\n`);
     const verdict = /RESULT:\s*(NOT FOUND|FOUND)\W*$/.exec(result.text?.trim() ?? '')?.[1];

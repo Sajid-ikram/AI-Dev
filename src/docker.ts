@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { IMAGES_DIR, type Limits } from './config.ts';
+import { IMAGES_DIR, WATCHDOG_DIR, type Limits } from './config.ts';
 import { exec } from './exec.ts';
 
 export const STACKS = ['base', 'node', 'flutter'] as const;
@@ -31,11 +31,26 @@ export async function buildImages(stacks: string[], noCache: boolean): Promise<v
   }
 }
 
+export interface Mount {
+  source: string;
+  target: string;
+  readonly?: boolean;
+}
+
+/**
+ * The watchdog every agent container gets: Claude Code's managed settings, which run
+ * src/watchdog/hook.ts before each tool call. Read-only, and managed settings outrank the repo's own.
+ */
+export const WATCHDOG_MOUNTS: Mount[] = [
+  { source: WATCHDOG_DIR, target: '/opt/aidev', readonly: true },
+  { source: path.join(WATCHDOG_DIR, 'managed-settings.json'), target: '/etc/claude-code/managed-settings.json', readonly: true },
+];
+
 export interface ContainerSpec {
   name: string;
   image: string;
-  /** Host folders to mount. Nothing else from the host is visible inside. */
-  mounts: { source: string; target: string }[];
+  /** Host folders and files to mount. Nothing else from the host is visible inside. */
+  mounts: Mount[];
   /** Names of variables copied from this process's environment, so their values stay off the command line. */
   env: string[];
   limits: Limits;
@@ -70,7 +85,7 @@ export function dockerRunArgs(spec: ContainerSpec): string[] {
   ];
   for (const mount of spec.mounts) {
     if (mount.source.includes(',')) throw new Error(`Can't mount a folder whose path contains a comma: ${mount.source}`);
-    args.push('--mount', `type=bind,source=${mount.source},target=${mount.target}`);
+    args.push('--mount', `type=bind,source=${mount.source},target=${mount.target}${mount.readonly ? ',readonly' : ''}`);
   }
   for (const name of spec.env) args.push('--env', name);
   for (const [key, value] of Object.entries(spec.labels)) args.push('--label', `${key}=${value}`);

@@ -42,8 +42,14 @@ export function workerPrompt(ticket: Ticket, project: ProjectConfig, branch: str
     branch,
     baseBranch: project.repo.baseBranch,
     checks: checksList(project),
+    protectedPaths: project.protectedPaths.map((p) => `\`${p}\``).join(', '),
   });
 }
+
+/** For a worker session cut off by a usage limit, Ctrl+C or a restart. */
+export const CONTINUE_PROMPT =
+  'You were stopped partway through this task, by a usage limit or a restart. Check where things stand (git status, git log), ' +
+  'then carry on where you left off. Finish as instructed before, including your final summary.';
 
 /** The prompt for a later round, sent to the worker's resumed session. */
 export function workerFixPrompt(ticket: Ticket, feedback: string, round: number, maxRounds: number): string {

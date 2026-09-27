@@ -117,6 +117,12 @@ export function reviewFeedback(verdict: Verdict, problems: ReviewIssue[]): strin
   return text;
 }
 
+/** Tells the worker its commits changed files it may not change. */
+export function protectedFeedback(files: { file: string; pattern: string }[]): string {
+  const list = files.map((f) => `- ${f.file} (protected by ${f.pattern})`).join('\n');
+  return `Your commits change protected files, which aidev doesn't allow:\n${list}\n\nUndo those changes in a new commit. If the ticket really needs them, stop and start your final message with BLOCKED:.`;
+}
+
 /** Longest tail of a failing check's output passed back to the worker. */
 const MAX_FEEDBACK_LINES = 120;
 

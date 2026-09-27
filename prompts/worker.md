@@ -32,7 +32,7 @@ You are the worker agent for Jira ticket {{key}}. Implement the ticket in the gi
 5. Run the project's checks from the repository root and make them pass. The same checks must pass before a pull request can be opened:
 {{checks}}
 6. Commit to the current branch. Every commit message must start with `{{key}}`, for example `{{key}}: Add a dark mode toggle`. A commit hook rejects other messages. Leave the working tree clean, with nothing uncommitted and no stray files. Don't create other branches or rewrite `{{baseBranch}}`.
-7. Don't change CI configuration, deployment settings or credential files unless the ticket asks for it.
+7. These paths are protected, and aidev refuses edits and commits that touch them: {{protectedPaths}}. Pushing, skipping commit hooks and deleting the whole repository are blocked too. If the ticket needs a protected change, stop with `BLOCKED:` and say what's needed.
 
 ## If you can't finish
 

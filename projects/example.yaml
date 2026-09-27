@@ -24,9 +24,17 @@ checks:
 # request's own author, so leave yourself out if BITBUCKET_TOKEN is your own API token.
 prReviewers: []
 
-# Jira statuses aidev moves tickets to. Leave one out and the ticket stays where it is.
+# The Jira workflow. `aidev watch` picks up tickets in pickUp; the rest are where aidev moves
+# a ticket. Leave one out and the ticket stays where it is. To retry a stuck ticket, answer
+# it and move it back to pickUp.
 jiraStatus:
+  pickUp: AI Tasks      # tickets waiting for aidev
+  working: In Progress  # while aidev works on it
   prOpened: In Review   # once the pull request is open
+  stuck: To Do          # when aidev can't finish: it needs an answer, failed review 3 times, or broke
+
+# Paths agents may never change, on top of the defaults (.git, .claude, CI config, .env, keystores).
+protectedPaths: []
 
 # Everything below is optional; these are the defaults.
 worker:

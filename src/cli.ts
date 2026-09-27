@@ -1,8 +1,10 @@
 import { parseArgs } from 'node:util';
 import { loadEnv } from './config.ts';
 import { buildImages, imageName } from './docker.ts';
-import { runTicket } from './pipeline.ts';
+import { listenForInterrupt } from './interrupt.ts';
+import { resumeTicket, runTicket } from './pipeline.ts';
 import { publishJob } from './publish.ts';
+import { watch } from './watch.ts';
 import { sandboxTest } from './sandbox.ts';
 import { red } from './ui.ts';
 
@@ -19,6 +21,13 @@ Usage:
 
   aidev publish <KEY>
       Push an approved job and open its pull request, for example after --local or a failed push.
+
+  aidev resume <KEY>
+      Continue a job that paused (a usage limit or Ctrl+C) or that a crash or restart cut off.
+
+  aidev watch [--interval <seconds>] [--once]
+      Poll Jira for tickets in each project's jiraStatus.pickUp status and work through them one
+      at a time. Continues paused jobs once their usage limit resets. --once does one job and exits.
 
   aidev build [base|node|flutter...] [--no-cache]
       Build the agent images. With no names, builds all of them.
@@ -44,6 +53,7 @@ async function main(argv: string[]): Promise<number> {
         },
       });
       if (positionals.length !== 1) return usage('run takes exactly one issue key, such as POT-12.');
+      listenForInterrupt();
       return runTicket({
         key: positionals[0].toUpperCase(),
         project: values.project,
@@ -56,6 +66,22 @@ async function main(argv: string[]): Promise<number> {
       const { positionals } = parseArgs({ args: rest, allowPositionals: true, options: {} });
       if (positionals.length !== 1) return usage('publish takes exactly one issue key, such as POT-12.');
       return publishJob(positionals[0].toUpperCase());
+    }
+    case 'resume': {
+      const { positionals } = parseArgs({ args: rest, allowPositionals: true, options: {} });
+      if (positionals.length !== 1) return usage('resume takes exactly one issue key, such as POT-12.');
+      listenForInterrupt();
+      return resumeTicket(positionals[0].toUpperCase());
+    }
+    case 'watch': {
+      const { values } = parseArgs({
+        args: rest,
+        options: { interval: { type: 'string', default: '90' }, once: { type: 'boolean', default: false } },
+      });
+      const intervalSeconds = Number(values.interval);
+      if (!(intervalSeconds >= 30)) return usage('--interval is in seconds, and at least 30.');
+      listenForInterrupt();
+      return watch({ intervalSeconds, once: values.once });
     }
     case 'build': {
       const { values, positionals } = parseArgs({

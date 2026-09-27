@@ -106,8 +106,15 @@ test('Jira moves pick the transition by its target status', () => {
   ];
   assert.equal(pickTransition(transitions, 'in review')?.id, '31');
   assert.equal(pickTransition(transitions, 'Done'), undefined);
-  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', jiraStatus: { prOpened: 'In Review' } }).jiraStatus, { prOpened: 'In Review' });
-  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i' }).jiraStatus, { prOpened: undefined });
+  const statuses = { pickUp: 'AI Tasks', working: 'In Progress', prOpened: 'In Review', stuck: 'To Do' };
+  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', jiraStatus: statuses }).jiraStatus, statuses);
+  assert.deepEqual(parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i' }).jiraStatus, {
+    pickUp: undefined,
+    working: undefined,
+    prOpened: undefined,
+    stuck: undefined,
+  });
+  assert.throws(() => parseProject('p.yaml', { name: 'p', repo: { url: 'x' }, image: 'i', jiraStatus: { done: 'Done' } }), /unknown keys: done/);
 });
 
 test('bitbucketRepo reads Bitbucket Cloud URLs only', () => {
@@ -145,6 +152,7 @@ test('the pull request description has the summary, notes, checks and review', (
     baseBranch: 'main',
     baseSha: change.baseSha,
     outcome: 'approved',
+    local: false,
     startedAt: '',
     approvedSha: change.headSha,
     rounds: [

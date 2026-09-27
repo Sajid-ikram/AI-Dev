@@ -114,6 +114,8 @@ export interface WorkSummary {
   commits: string[];
   /** Commit subjects that don't start with the issue key. */
   badMessages: string[];
+  /** Files the branch's commits changed, relative to the repo root. */
+  files: string[];
   /** `git status --porcelain` output; empty when the tree is clean. */
   status: string;
   diff: string;
@@ -129,6 +131,7 @@ export async function summarizeWork(work: string, baseSha: string, key: string):
     headSha: (await run(['rev-parse', 'HEAD'])).trim(),
     commits,
     badMessages: commits.map((c) => c.slice(c.indexOf(' ') + 1)).filter((subject) => !keyPrefix.test(subject)),
+    files: (await run(['diff', '--name-only', baseSha, 'HEAD'])).split('\n').filter(Boolean),
     status,
     diff: await run(['diff', baseSha, 'HEAD']),
     uncommittedDiff: status ? await run(['diff', 'HEAD']) : '',

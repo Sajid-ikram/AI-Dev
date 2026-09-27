@@ -23,8 +23,19 @@ if [ "$(cat /work/.aidev-sandbox-marker 2> /dev/null)" = "$1" ]; then pass "sees
 if touch /work/.write-test 2> /dev/null && rm /work/.write-test; then pass "can write to /work"; else fail "can't write to /work"; fi
 
 extra=$(awk '{print $2}' /proc/mounts | sort -u \
-  | grep -Ev '^(/|/proc(/.*)?|/sys(/.*)?|/dev(/.*)?|/etc/(resolv\.conf|hostname|hosts)|(/usr)?/sbin/docker-init|/work|/claude)$' | tr '\n' ' ')
-if [ -z "$extra" ]; then pass "only the job folders are mounted from the host"; else fail "unexpected mounts: $extra"; fi
+  | grep -Ev '^(/|/proc(/.*)?|/sys(/.*)?|/dev(/.*)?|/etc/(resolv\.conf|hostname|hosts)|(/usr)?/sbin/docker-init|/work|/claude|/opt/aidev|/etc/claude-code/managed-settings\.json)$' | tr '\n' ' ')
+if [ -z "$extra" ]; then pass "only the job folders and the watchdog are mounted from the host"; else fail "unexpected mounts: $extra"; fi
+
+if [ -f /opt/aidev/hook.ts ] && grep -q hook.ts /etc/claude-code/managed-settings.json 2> /dev/null; then
+  pass "the watchdog hook is installed in Claude Code's managed settings"
+else
+  fail "the watchdog hook isn't installed"
+fi
+if [ -w /opt/aidev ] || [ -w /opt/aidev/hook.ts ] || [ -w /etc/claude-code/managed-settings.json ]; then
+  fail "the agent can change the watchdog"
+else
+  pass "the watchdog is read-only"
+fi
 
 hostpaths=""
 for p in /mnt/c /mnt/host /mnt/wsl /host_mnt /run/desktop /c /Users /Windows; do

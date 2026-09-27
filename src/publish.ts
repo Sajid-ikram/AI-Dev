@@ -41,15 +41,19 @@ export async function publish(job: JobRecord, project: ProjectConfig, ticket: Ti
       .filter(Boolean)
       .join('\n\n'),
   );
-  if (project.jiraStatus.prOpened) await moveJira(ticket, project.jiraStatus.prOpened);
+  await moveJira(job, project, ticket, project.jiraStatus.prOpened);
 }
 
-/** Moves the ticket in Jira, if it came from Jira. A failed move is only a warning. */
-async function moveJira(ticket: Ticket, status: string): Promise<void> {
-  if (!ticket.url) return;
+/**
+ * Moves the ticket in Jira to `status`, if it came from Jira and a status is configured.
+ * A failed move is only a warning. Records when the ticket leaves the pick-up status.
+ */
+export async function moveJira(job: JobRecord, project: ProjectConfig, ticket: Ticket, status: string | undefined): Promise<void> {
+  if (!ticket.url || !status) return;
   try {
     const moved = await moveTicket(ticket.key, status);
     console.log(dim(moved ? `Moved ${ticket.key} to "${status}" in Jira.` : `${ticket.key} is already "${status}" in Jira.`));
+    if (status.toLowerCase() !== project.jiraStatus.pickUp?.toLowerCase()) job.leftPickUp = true;
   } catch (err) {
     warn(`Couldn't move ${ticket.key} to "${status}" in Jira: ${(err as Error).message}`);
   }

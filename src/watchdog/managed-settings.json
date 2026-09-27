@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "node /opt/aidev/hook.ts", "timeout": 30 }]
+      }
+    ]
+  }
+}

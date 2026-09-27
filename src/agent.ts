@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import readline from 'node:readline';
 import type { Limits, RoleConfig } from './config.ts';
-import { dockerRunArgs } from './docker.ts';
+import { WATCHDOG_MOUNTS, dockerRunArgs, type Mount } from './docker.ts';
 import { exec } from './exec.ts';
 import { dim } from './ui.ts';
 
@@ -30,7 +30,16 @@ export interface AgentRun {
   tools?: string[];
   /** Makes the final answer JSON matching this schema, returned as structuredOutput. */
   jsonSchema?: object;
+  /** Paths the watchdog hook stops the agent from editing (see src/watchdog/policy.ts). */
+  protectedPaths: string[];
 }
+
+export type StopReason = 'timeout' | 'interrupted' | 'stuck' | 'rate_limited';
+
+/** The same tool call this many times in a row means the agent is going in circles. */
+const REPEAT_LIMIT = 5;
+/** No output for this long means a hung command. Claude Code's own Bash timeout is at most 10 minutes. */
+const IDLE_MINUTES = 15;
 
 export interface AgentResult {
   exitCode: number;
@@ -50,7 +59,11 @@ export interface AgentResult {
   /** Wall-clock time of the container run. */
   elapsedMs?: number;
   /** Set when the orchestrator stopped the container. */
-  stopped?: 'timeout' | 'interrupted';
+  stopped?: StopReason;
+  /** More about why it stopped, such as which tool call repeated. */
+  stopDetail?: string;
+  /** When a usage limit stopped the run: when the limit resets (ms since epoch), if Claude Code said. */
+  rateLimitResetsAt?: number;
 }
 
 /** The Claude Code command inside the container. Never --bare: bare mode ignores CLAUDE_CODE_OAUTH_TOKEN. */
@@ -79,18 +92,20 @@ export function claudeCommand(
 }
 
 /**
- * Runs Claude Code in a fresh container with the prompt on stdin. Every stream-json event is
- * appended to the events file, and progress is printed. Stops the container at the time limit or on Ctrl+C.
+ * Runs Claude Code in a fresh container with the prompt on stdin, with the watchdog hook in place.
+ * Every stream-json event is appended to the events file, and progress is printed. Stops the
+ * container at the time limit, when the agent is stuck, or on Ctrl+C, and recognizes usage limits.
  */
 export async function runAgent(run: AgentRun): Promise<AgentResult> {
   const name = `aidev-${run.jobKey.toLowerCase()}-${run.role}-${Date.now().toString(36)}`;
-  const mounts = [{ source: run.work, target: '/work' }];
+  const mounts: Mount[] = [{ source: run.work, target: '/work' }];
   if (run.claudeDir) mounts.push({ source: run.claudeDir, target: '/claude' });
+  mounts.push(...WATCHDOG_MOUNTS);
   const args = dockerRunArgs({
     name,
     image: run.image,
     mounts,
-    env: [run.authVar],
+    env: [run.authVar, 'AIDEV_PROTECTED_PATHS'],
     limits: run.limits,
     labels: { 'aidev.job': run.jobKey, 'aidev.role': run.role },
     command: claudeCommand(run.config, { resume: run.resume, tools: run.tools, jsonSchema: run.jsonSchema }),
@@ -100,17 +115,37 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
   const log = fs.createWriteStream(run.logFile, { flags: 'a' });
   const result: AgentResult = { exitCode: 1, isError: true };
   const startedAt = Date.now();
+  /** A usage limit rejected a request during this run. */
+  let limited = false;
+  let apiErrorStatus: number | undefined;
 
-  const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-  const stop = (reason: 'timeout' | 'interrupted') => {
+  const child = spawn('docker', args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: { ...process.env, AIDEV_PROTECTED_PATHS: JSON.stringify(run.protectedPaths) },
+  });
+  const stop = (reason: StopReason, detail?: string) => {
     if (result.stopped) return;
     result.stopped = reason;
+    result.stopDetail = detail;
     exec('docker', ['kill', name], { allowFail: true }).catch(() => {});
   };
   const timer = setTimeout(() => {
     console.log(`\nThe ${run.role} reached its ${run.config.timeoutMinutes}-minute limit. Stopping it...`);
     stop('timeout');
   }, run.config.timeoutMinutes * 60_000);
+  let idleTimer: NodeJS.Timeout | undefined;
+  const resetIdle = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      console.log(`\nThe ${run.role} printed nothing for ${IDLE_MINUTES} minutes. Stopping it...`);
+      // Silence after a usage limit rejected a request is Claude Code waiting for the limit.
+      if (limited) stop('rate_limited');
+      else stop('stuck', `no output for ${IDLE_MINUTES} minutes`);
+    }, IDLE_MINUTES * 60_000);
+  };
+  resetIdle();
+  const loops = new LoopDetector(REPEAT_LIMIT);
   const onInterrupt = () => {
     console.log(`\nStopping the ${run.role}...`);
     stop('interrupted');
@@ -125,6 +160,7 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
     process.stderr.write(dim(chunk));
   });
   readline.createInterface({ input: child.stdout, crlfDelay: Infinity }).on('line', (line) => {
+    resetIdle();
     events.write(line + '\n');
     let event: StreamEvent;
     try {
@@ -134,11 +170,25 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
       return;
     }
     if (event.type === 'system' && event.subtype === 'init') result.sessionId = event.session_id;
+    // Not stopped right away: Claude Code may carry on with the fallback model.
+    const limit = usageLimit(event);
+    if (limit) {
+      limited = true;
+      result.rateLimitResetsAt = limit.resetsAt ?? result.rateLimitResetsAt;
+    }
+    if (event.type === 'assistant' && !event.parent_tool_use_id) {
+      for (const block of event.message?.content ?? []) {
+        if (block.type === 'tool_use' && loops.see(block.name, block.input)) {
+          stop('stuck', `it ran the same ${block.name} call ${REPEAT_LIMIT} times in a row`);
+        }
+      }
+    }
     if (event.type === 'result') {
       result.sessionId = event.session_id ?? result.sessionId;
       result.subtype = event.subtype;
       result.isError = Boolean(event.is_error);
       if (result.isError) result.error = event.api_error_code ?? event.terminal_reason ?? event.subtype;
+      apiErrorStatus = event.api_error_status;
       result.numTurns = event.num_turns;
       result.costUsd = event.total_cost_usd;
       result.text = typeof event.result === 'string' ? event.result : undefined;
@@ -155,11 +205,46 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
     });
   } finally {
     clearTimeout(timer);
+    clearTimeout(idleTimer);
     process.off('SIGINT', onInterrupt);
     await Promise.all([new Promise((r) => events.end(r)), new Promise((r) => log.end(r))]);
   }
+  // A run that failed after a usage limit rejected it, or that ended on a 429, waits for the limit.
+  const failed = result.isError || !result.subtype;
+  const hit429 = apiErrorStatus === 429 && result.error !== 'credits_required';
+  if (!result.stopped && failed && (limited || hit429)) result.stopped = 'rate_limited';
   result.elapsedMs = Date.now() - startedAt;
   return result;
+}
+
+/**
+ * A usage limit that rejected a request, from a rate_limit_event. Paid-only models
+ * (credits_required) don't count: waiting won't help, so that run just fails.
+ */
+export function usageLimit(event: StreamEvent): { resetsAt?: number } | undefined {
+  const info = event.type === 'rate_limit_event' ? event.rate_limit_info : undefined;
+  if (info?.status !== 'rejected' || info.errorCode === 'credits_required') return undefined;
+  return { resetsAt: typeof info.resetsAt === 'number' ? info.resetsAt * 1000 : undefined };
+}
+
+/** Spots an agent going in circles: the same tool call with the same input, again and again. */
+export class LoopDetector {
+  private last = '';
+  private count = 0;
+  private readonly limit: number;
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  /** Records a tool call. True once the same call has come `limit` times in a row. */
+  see(toolName: string, input: unknown): boolean {
+    if (toolName === 'TodoWrite') return false;
+    const signature = `${toolName} ${JSON.stringify(input)}`;
+    this.count = signature === this.last ? this.count + 1 : 1;
+    this.last = signature;
+    return this.count >= this.limit;
+  }
 }
 
 type StreamEvent = { type?: string; subtype?: string; [key: string]: any };

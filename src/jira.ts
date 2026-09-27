@@ -55,6 +55,15 @@ export async function fetchTicket(key: string): Promise<Ticket> {
   return ticketFromIssue(issue as JiraIssue, jiraBaseUrl());
 }
 
+/** Issues matching a JQL query, oldest first unless the query orders them. */
+export async function searchIssues(jql: string, max = 50): Promise<{ key: string; summary: string; status: string }[]> {
+  const fields = 'summary,status';
+  const res = (await jiraRequest(jql, `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=${fields}&maxResults=${max}`)) as {
+    issues?: { key: string; fields: { summary?: string; status?: { name?: string } } }[];
+  };
+  return (res.issues ?? []).map((i) => ({ key: i.key, summary: i.fields.summary ?? '', status: i.fields.status?.name ?? '' }));
+}
+
 interface Transition {
   id: string;
   name: string;

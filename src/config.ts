@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
+import { DEFAULT_PROTECTED_PATHS } from './watchdog/policy.ts';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 export const WORKSPACE = path.join(ROOT, 'workspace');
 export const PROJECTS_DIR = path.join(ROOT, 'projects');
 export const PROMPTS_DIR = path.join(ROOT, 'prompts');
 export const IMAGES_DIR = path.join(ROOT, 'images');
+export const WATCHDOG_DIR = path.join(ROOT, 'src', 'watchdog');
 
 // ---------- .env ----------
 
@@ -88,11 +90,22 @@ export interface ProjectConfig {
    * Bitbucket share. Bitbucket won't take the pull request's own author.
    */
   prReviewers: string[];
-  /** Jira statuses aidev moves tickets to. Each is optional; without one, the ticket stays put. */
+  /**
+   * The Jira workflow. `aidev watch` picks up tickets in `pickUp`. The others are where aidev
+   * moves a ticket; without one, the ticket stays where it is.
+   */
   jiraStatus: {
-    /** Where a ticket goes once its pull request is open, such as "In Review". */
+    /** Tickets waiting for aidev, such as "AI Tasks". */
+    pickUp?: string;
+    /** While aidev works on it, such as "In Progress". */
+    working?: string;
+    /** Once its pull request is open, such as "In Review". */
     prOpened?: string;
+    /** When aidev can't finish (blocked, escalated or failed), such as "To Do". */
+    stuck?: string;
   };
+  /** Paths agents may never change, on top of DEFAULT_PROTECTED_PATHS. */
+  protectedPaths: string[];
   worker: RoleConfig;
   reviewer: RoleConfig;
   limits: Limits;
@@ -156,6 +169,18 @@ function parseRole(value: unknown, label: string, defaults: RoleConfig): RoleCon
   };
 }
 
+function parseJiraStatus(raw: Obj): ProjectConfig['jiraStatus'] {
+  const known = ['pickUp', 'working', 'prOpened', 'stuck'];
+  const unknown = Object.keys(raw).filter((k) => !known.includes(k));
+  if (unknown.length) throw new Error(`jiraStatus has unknown keys: ${unknown.join(', ')}. Use ${known.join(', ')}.`);
+  return {
+    pickUp: asOptStr(raw.pickUp, 'jiraStatus.pickUp'),
+    working: asOptStr(raw.working, 'jiraStatus.working'),
+    prOpened: asOptStr(raw.prOpened, 'jiraStatus.prOpened'),
+    stuck: asOptStr(raw.stuck, 'jiraStatus.stuck'),
+  };
+}
+
 export function parseProject(file: string, data: unknown): ProjectConfig {
   try {
     const raw = asObj(data, 'the file');
@@ -177,7 +202,8 @@ export function parseProject(file: string, data: unknown): ProjectConfig {
       image: asStr(raw.image, 'image'),
       checks: asStrList(raw.checks, 'checks'),
       prReviewers: asStrList(raw.prReviewers, 'prReviewers'),
-      jiraStatus: { prOpened: asOptStr(asObj(raw.jiraStatus, 'jiraStatus').prOpened, 'jiraStatus.prOpened') },
+      jiraStatus: parseJiraStatus(asObj(raw.jiraStatus, 'jiraStatus')),
+      protectedPaths: [...DEFAULT_PROTECTED_PATHS, ...asStrList(raw.protectedPaths, 'protectedPaths')],
       worker: parseRole(raw.worker, 'worker', DEFAULT_ROLE),
       reviewer: parseRole(raw.reviewer, 'reviewer', DEFAULT_REVIEWER),
       limits: {
@@ -202,13 +228,10 @@ export function readProject(file: string): ProjectConfig {
 export function findProject(issueKey: string, selector?: string): ProjectConfig {
   if (selector && /\.ya?ml$/i.test(selector)) return readProject(path.resolve(selector));
 
-  const files = fs.existsSync(PROJECTS_DIR)
-    ? fs.readdirSync(PROJECTS_DIR).filter((f) => /\.ya?ml$/i.test(f) && f !== 'example.yaml')
-    : [];
-  if (files.length === 0) {
+  const projects = listProjects();
+  if (projects.length === 0) {
     throw new Error('There are no project configs. Copy projects/example.yaml to projects/<name>.yaml and fill it in.');
   }
-  const projects = files.map((f) => readProject(path.join(PROJECTS_DIR, f)));
 
   if (selector) {
     const match = projects.find((p) => p.name === selector);
@@ -222,6 +245,15 @@ export function findProject(issueKey: string, selector?: string): ProjectConfig 
     throw new Error(`Several projects use Jira project ${prefix} (${matches.map((p) => p.name).join(', ')}). Pick one with --project.`);
   }
   throw new Error(`No project config has "jiraProject: ${prefix}". Set it in projects/<name>.yaml or pass --project.`);
+}
+
+/** Every project config in projects/, except the example. */
+export function listProjects(): ProjectConfig[] {
+  if (!fs.existsSync(PROJECTS_DIR)) return [];
+  return fs
+    .readdirSync(PROJECTS_DIR)
+    .filter((f) => /\.ya?ml$/i.test(f) && f !== 'example.yaml')
+    .map((f) => readProject(path.join(PROJECTS_DIR, f)));
 }
 
 /** Catches configs that were copied from the example but not filled in. */
