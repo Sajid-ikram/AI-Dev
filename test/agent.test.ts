@@ -10,7 +10,8 @@ test('claudeCommand never uses --bare, which would ignore the OAuth token', () =
   assert.deepEqual(args.slice(0, 2), ['claude', '--print']);
   for (const flag of ['--dangerously-skip-permissions', '--verbose']) assert.ok(args.includes(flag));
   assert.equal(args[args.indexOf('--output-format') + 1], 'stream-json');
-  assert.equal(args[args.indexOf('--fallback-model') + 1], 'opus');
+  assert.equal(args[args.indexOf('--model') + 1], 'opus');
+  assert.equal(args[args.indexOf('--fallback-model') + 1], 'sonnet');
   assert.equal(args[args.indexOf('--effort') + 1], 'high');
 });
 
@@ -59,4 +60,9 @@ test('describeEvent summarizes text and tool calls', () => {
   assert.equal(describeEvent({ type: 'assistant', parent_tool_use_id: 'x', message: { content: [{ type: 'text', text: 'hi' }] } }), undefined);
   assert.equal(describeEvent({ type: 'user' }), undefined);
   assert.match(describeEvent({ type: 'system', subtype: 'api_retry', attempt: 2, error: 'rate_limit' }) ?? '', /retry 2: rate_limit/);
+  assert.match(
+    describeEvent({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', errorCode: 'credits_required' } }) ?? '',
+    /Usage limit: rejected \(credits_required\)/,
+  );
+  assert.equal(describeEvent({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }), undefined);
 });

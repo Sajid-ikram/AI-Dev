@@ -29,6 +29,8 @@ export interface AgentResult {
   /** From Claude Code's result event: success, error_max_turns, error_during_execution... */
   subtype?: string;
   isError: boolean;
+  /** Why an errored run stopped, such as credits_required. Its subtype can still say "success". */
+  error?: string;
   numTurns?: number;
   /** Claude Code's estimate. On a subscription, it's what the run would have cost on the API. */
   costUsd?: number;
@@ -117,6 +119,7 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
       result.sessionId = event.session_id ?? result.sessionId;
       result.subtype = event.subtype;
       result.isError = Boolean(event.is_error);
+      if (result.isError) result.error = event.api_error_code ?? event.terminal_reason ?? event.subtype;
       result.numTurns = event.num_turns;
       result.costUsd = event.total_cost_usd;
       result.text = typeof event.result === 'string' ? event.result : undefined;
@@ -145,6 +148,11 @@ export function describeEvent(event: StreamEvent): string | undefined {
   if (event.type === 'system' && event.subtype === 'init') return dim(`session ${event.session_id}, model ${event.model}`);
   if (event.type === 'system' && event.subtype === 'api_retry') {
     return `API retry${event.attempt ? ` ${event.attempt}` : ''}: ${event.error ?? event.error_status ?? 'error'}`;
+  }
+  if (event.type === 'rate_limit_event' && event.rate_limit_info?.status === 'rejected') {
+    const info = event.rate_limit_info;
+    const resets = info.resetsAt ? `, resets ${new Date(info.resetsAt * 1000).toLocaleString()}` : '';
+    return `Usage limit: rejected (${info.errorCode ?? 'rate limit'}${resets})`;
   }
   // Messages from subagents carry parent_tool_use_id; the main agent's are enough to follow along.
   if (event.type !== 'assistant' || event.parent_tool_use_id) return undefined;

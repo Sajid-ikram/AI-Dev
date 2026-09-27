@@ -83,7 +83,10 @@ export async function sandboxTest(opts: { image: string; agent: boolean }): Prom
     else {
       failures++;
       if (verdict === 'FOUND') fail('Claude reached files on the Windows PC.');
-      else fail(`Claude gave no verdict (${result.stopped ?? result.subtype ?? `exit code ${result.exitCode}`}). See ${path.relative(ROOT, dir)}/events.jsonl.`);
+      else {
+        const why = result.stopped ?? result.error ?? result.subtype ?? `exit code ${result.exitCode}`;
+        fail(`Claude gave no verdict (${why}). See ${path.relative(ROOT, dir)}/events.jsonl.`);
+      }
     }
   }
 

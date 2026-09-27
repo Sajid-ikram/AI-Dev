@@ -87,7 +87,8 @@ export interface ProjectConfig {
   limits: Limits;
 }
 
-export const DEFAULT_ROLE: RoleConfig = { model: 'fable', fallbackModel: 'opus', maxTurns: 200, timeoutMinutes: 90 };
+// The strongest model a subscription includes: Fable needs paid usage credits (API error credits_required).
+export const DEFAULT_ROLE: RoleConfig = { model: 'opus', fallbackModel: 'sonnet', maxTurns: 200, timeoutMinutes: 90 };
 export const DEFAULT_LIMITS: Limits = { cpus: 4, memory: '8g', pids: 2048 };
 
 type Obj = Record<string, unknown>;

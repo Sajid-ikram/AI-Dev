@@ -20,8 +20,8 @@ checks:
 
 # Everything below is optional; these are the defaults.
 worker:
-  model: fable          # a Claude Code alias (fable, opus, sonnet) or a full model name
-  fallbackModel: opus   # used if the model is overloaded or not on your plan; "" turns it off
+  model: opus           # a Claude Code alias (opus, sonnet, fable) or a full model name; fable needs usage credits on a subscription
+  fallbackModel: sonnet # used when the model is overloaded; "" turns it off
   # effort: xhigh       # low, medium, high, xhigh or max; unset uses Claude Code's default
   maxTurns: 200
   timeoutMinutes: 90

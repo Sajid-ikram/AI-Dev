@@ -105,7 +105,13 @@ async function showResult(r: {
 }): Promise<void> {
   const { result, work } = r;
   step('Result');
-  const facts = [result.stopped ? `stopped (${result.stopped})` : (result.subtype ?? `no result, exit code ${result.exitCode}`)];
+  const facts = [
+    result.stopped
+      ? `stopped (${result.stopped})`
+      : result.error
+        ? `failed (${result.error})`
+        : (result.subtype ?? `no result, exit code ${result.exitCode}`),
+  ];
   if (result.numTurns !== undefined) facts.push(`${result.numTurns} turns`);
   facts.push(formatDuration(r.elapsedMs));
   if (result.costUsd !== undefined) facts.push(`est. $${result.costUsd.toFixed(2)}`);
