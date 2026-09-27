@@ -23,16 +23,21 @@ export interface TicketComment {
 /** The most recent comments given to the agent; older ones are usually stale. */
 const MAX_COMMENTS = 10;
 
-export async function fetchTicket(key: string): Promise<Ticket> {
-  const base = requireEnv('JIRA_BASE_URL', 'to read tickets from Jira').replace(/\/+$/, '');
-  const email = requireEnv('JIRA_EMAIL', 'to read tickets from Jira');
-  const token = requireEnv('JIRA_API_TOKEN', 'to read tickets from Jira');
-  const fields = 'summary,description,issuetype,status,priority,labels,comment';
-  const res = await fetch(`${base}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`, {
+function jiraBaseUrl(): string {
+  return requireEnv('JIRA_BASE_URL', 'to talk to Jira').replace(/\/+$/, '');
+}
+
+async function jiraRequest(key: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<unknown> {
+  const email = requireEnv('JIRA_EMAIL', 'to talk to Jira');
+  const token = requireEnv('JIRA_API_TOKEN', 'to talk to Jira');
+  const res = await fetch(`${jiraBaseUrl()}${path}`, {
+    method: init.method ?? 'GET',
     headers: {
       Authorization: `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`,
       Accept: 'application/json',
+      ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
     signal: AbortSignal.timeout(30_000),
   });
   if (res.status === 401 || res.status === 403) {
@@ -40,7 +45,39 @@ export async function fetchTicket(key: string): Promise<Ticket> {
   }
   if (res.status === 404) throw new Error(`Jira issue ${key} doesn't exist, or this account can't see it.`);
   if (!res.ok) throw new Error(`Jira returned HTTP ${res.status} for ${key}: ${(await res.text()).slice(0, 300)}`);
-  return ticketFromIssue((await res.json()) as JiraIssue, base);
+  return res.json();
+}
+
+export async function fetchTicket(key: string): Promise<Ticket> {
+  const fields = 'summary,description,issuetype,status,priority,labels,comment';
+  const issue = await jiraRequest(key, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`);
+  return ticketFromIssue(issue as JiraIssue, jiraBaseUrl());
+}
+
+/** Adds a comment to the issue. Blank lines separate paragraphs, and URLs become links. */
+export async function addComment(key: string, text: string): Promise<void> {
+  await jiraRequest(key, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { method: 'POST', body: { body: textToAdf(text) } });
+}
+
+export function textToAdf(text: string): AdfNode {
+  const paragraphs = text.trim().replace(/\r\n/g, '\n').split(/\n{2,}/);
+  return {
+    type: 'doc',
+    version: 1,
+    content: paragraphs.map((p) => ({
+      type: 'paragraph',
+      content: p.split('\n').flatMap((line, i) => [...(i ? [{ type: 'hardBreak' }] : []), ...linkify(line)]),
+    })),
+  };
+}
+
+function linkify(line: string): AdfNode[] {
+  return line
+    .split(/(https?:\/\/[^\s)>\]]+)/)
+    .filter((part) => part !== '')
+    .map((part) =>
+      /^https?:\/\//.test(part) ? { type: 'text', text: part, marks: [{ type: 'link', attrs: { href: part } }] } : { type: 'text', text: part },
+    );
 }
 
 interface JiraIssue {
@@ -115,6 +152,8 @@ function richText(value: AdfNode | string | null | undefined): string {
 
 export interface AdfNode {
   type: string;
+  /** Only on the root "doc" node. */
+  version?: number;
   text?: string;
   attrs?: Record<string, any>;
   marks?: { type: string; attrs?: Record<string, any> }[];

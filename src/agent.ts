@@ -12,8 +12,11 @@ export interface AgentRun {
   image: string;
   /** Mounted at /work; the agent's working directory. */
   work: string;
-  /** Mounted at /claude as CLAUDE_CONFIG_DIR, so the session survives the container. */
-  claudeDir: string;
+  /**
+   * Mounted at /claude as CLAUDE_CONFIG_DIR, so the session survives the container and can be
+   * resumed. Without it the session lives and dies with the container.
+   */
+  claudeDir?: string;
   eventsFile: string;
   logFile: string;
   prompt: string;
@@ -21,6 +24,12 @@ export interface AgentRun {
   limits: Limits;
   /** The one Claude credential variable to pass in; see claudeAuthVar(). */
   authVar: string;
+  /** Continue this session instead of starting a new one. Needs the same claudeDir. */
+  resume?: string;
+  /** Limit the built-in tools, such as ['Bash', 'Read', 'Grep', 'Glob'] for a reviewer that can't edit. */
+  tools?: string[];
+  /** Makes the final answer JSON matching this schema, returned as structuredOutput. */
+  jsonSchema?: object;
 }
 
 export interface AgentResult {
@@ -36,12 +45,19 @@ export interface AgentResult {
   costUsd?: number;
   /** The agent's final message. */
   text?: string;
+  /** The final answer when the run had a jsonSchema. */
+  structuredOutput?: unknown;
+  /** Wall-clock time of the container run. */
+  elapsedMs?: number;
   /** Set when the orchestrator stopped the container. */
   stopped?: 'timeout' | 'interrupted';
 }
 
 /** The Claude Code command inside the container. Never --bare: bare mode ignores CLAUDE_CODE_OAUTH_TOKEN. */
-export function claudeCommand(config: RoleConfig): string[] {
+export function claudeCommand(
+  config: RoleConfig,
+  extras: { resume?: string; tools?: string[]; jsonSchema?: object } = {},
+): string[] {
   const args = [
     'claude',
     '--print',
@@ -56,6 +72,9 @@ export function claudeCommand(config: RoleConfig): string[] {
   ];
   if (config.fallbackModel && config.fallbackModel !== config.model) args.push('--fallback-model', config.fallbackModel);
   if (config.effort) args.push('--effort', config.effort);
+  if (extras.resume) args.push('--resume', extras.resume);
+  if (extras.tools) args.push('--tools', extras.tools.join(','));
+  if (extras.jsonSchema) args.push('--json-schema', JSON.stringify(extras.jsonSchema));
   return args;
 }
 
@@ -65,22 +84,22 @@ export function claudeCommand(config: RoleConfig): string[] {
  */
 export async function runAgent(run: AgentRun): Promise<AgentResult> {
   const name = `aidev-${run.jobKey.toLowerCase()}-${run.role}-${Date.now().toString(36)}`;
+  const mounts = [{ source: run.work, target: '/work' }];
+  if (run.claudeDir) mounts.push({ source: run.claudeDir, target: '/claude' });
   const args = dockerRunArgs({
     name,
     image: run.image,
-    mounts: [
-      { source: run.work, target: '/work' },
-      { source: run.claudeDir, target: '/claude' },
-    ],
+    mounts,
     env: [run.authVar],
     limits: run.limits,
     labels: { 'aidev.job': run.jobKey, 'aidev.role': run.role },
-    command: claudeCommand(run.config),
+    command: claudeCommand(run.config, { resume: run.resume, tools: run.tools, jsonSchema: run.jsonSchema }),
   });
 
   const events = fs.createWriteStream(run.eventsFile, { flags: 'a' });
   const log = fs.createWriteStream(run.logFile, { flags: 'a' });
   const result: AgentResult = { exitCode: 1, isError: true };
+  const startedAt = Date.now();
 
   const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const stop = (reason: 'timeout' | 'interrupted') => {
@@ -123,6 +142,7 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
       result.numTurns = event.num_turns;
       result.costUsd = event.total_cost_usd;
       result.text = typeof event.result === 'string' ? event.result : undefined;
+      result.structuredOutput = event.structured_output;
     }
     const text = describeEvent(event);
     if (text) console.log(text);
@@ -138,6 +158,7 @@ export async function runAgent(run: AgentRun): Promise<AgentResult> {
     process.off('SIGINT', onInterrupt);
     await Promise.all([new Promise((r) => events.end(r)), new Promise((r) => log.end(r))]);
   }
+  result.elapsedMs = Date.now() - startedAt;
   return result;
 }
 

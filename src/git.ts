@@ -76,6 +76,24 @@ export async function prepareWorkClone(opts: {
   return (await git(['rev-parse', 'HEAD'], { cwd: work })).stdout.trim();
 }
 
+/**
+ * A fresh, detached clone of one commit of the work repo, for the checks and the reviewer.
+ * No hardlinks, so nothing done in it can reach the worker's repo.
+ */
+export async function cloneForReview(work: string, dest: string, sha: string): Promise<void> {
+  await git(['clone', '--quiet', '--no-hardlinks', '--no-checkout', '-c', 'core.autocrlf=false', work, dest]);
+  await git(['checkout', '--quiet', '--detach', sha], { cwd: dest });
+}
+
+/**
+ * Pushes the approved commit to the project's remote as `branch`. Branches under ai/ belong to
+ * aidev, so a rerun of a ticket replaces the earlier attempt with a force push.
+ */
+export async function pushBranch(project: ProjectConfig, work: string, sha: string, branch: string): Promise<void> {
+  if (!branch.startsWith('ai/')) throw new Error(`aidev only force-pushes its own ai/ branches, not ${branch}.`);
+  await git(['push', '--quiet', '--force', 'origin', `${sha}:refs/heads/${branch}`], { cwd: work, env: remoteEnv(project) });
+}
+
 /** Rejects commits whose message doesn't start with the issue key, so Jira links every commit. */
 function installCommitMsgHook(work: string, key: string): void {
   const hook = [

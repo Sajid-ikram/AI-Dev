@@ -15,6 +15,14 @@ test('claudeCommand never uses --bare, which would ignore the OAuth token', () =
   assert.equal(args[args.indexOf('--effort') + 1], 'high');
 });
 
+test('claudeCommand adds resume, tool limits and a JSON schema', () => {
+  const args = claudeCommand(DEFAULT_ROLE, { resume: 'abc', tools: ['Bash', 'Read'], jsonSchema: { type: 'object' } });
+  assert.equal(args[args.indexOf('--resume') + 1], 'abc');
+  assert.equal(args[args.indexOf('--tools') + 1], 'Bash,Read');
+  assert.equal(args[args.indexOf('--json-schema') + 1], '{"type":"object"}');
+  assert.ok(!claudeCommand(DEFAULT_ROLE).includes('--resume'));
+});
+
 test('claudeCommand skips a fallback that equals the model', () => {
   assert.ok(!claudeCommand({ ...DEFAULT_ROLE, model: 'opus', fallbackModel: 'opus' }).includes('--fallback-model'));
   assert.ok(!claudeCommand({ ...DEFAULT_ROLE, fallbackModel: undefined }).includes('--fallback-model'));

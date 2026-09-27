@@ -1,6 +1,6 @@
 # aidev
 
-aidev takes a Jira ticket and has a Claude Code agent implement it inside a locked-down Docker container, then shows you the diff. Later phases add an independent reviewer, the Bitbucket pull request and a Jira poller. [CLAUDE.md](CLAUDE.md) has the design and the roadmap.
+aidev takes a Jira ticket and has a Claude Code agent implement it inside a locked-down Docker container. A second, independent agent reviews the work, the project's checks must pass, and then aidev opens a Bitbucket pull request and comments on the ticket. A Jira poller comes in a later phase. [CLAUDE.md](CLAUDE.md) has the design and the roadmap.
 
 ## Requirements
 
@@ -26,16 +26,25 @@ This does the following:
 
 1. Reads POT-12 from Jira. To use a Markdown file instead, pass `--ticket-file ticket.md`.
 2. Updates a mirror of the project's repo, then clones it into `workspace/jobs/POT-12/work` on a new branch, `ai/POT-12-<summary>`.
-3. Starts the worker agent in a container that sees only that folder. The worker commits its work, and every commit message must start with the issue key.
-4. Prints the commits, the diff and the worker's summary.
+3. Runs up to 3 rounds of:
+   1. **The worker** implements the ticket in a container that sees only its clone, and commits. Every commit message must start with the issue key. From round 2, it continues its earlier session with the feedback.
+   2. **The checks** from the project config run on a fresh clone of the worker's commit, in a container with no credentials at all. If one fails, its output goes back to the worker.
+   3. **The reviewer**, a separate agent with no edit tools, reviews the change without seeing the worker's reasoning. It returns a structured verdict. For a bug, a test must be shown to fail without the fix and pass with it. If the reviewer asks for changes, they go back to the worker.
+4. Ends in one of these outcomes:
+   - **Approved:** aidev pushes the approved commit, opens a pull request and links it in a Jira comment.
+   - **Blocked:** the worker needs an answer, and aidev posts its question on the ticket.
+   - **Escalated:** 3 rounds went by without approval, so aidev hands the ticket to a person with the latest findings.
+   - **Failed:** an error or a time limit stopped the run.
 
-Everything is kept in `workspace/jobs/POT-12/`: the ticket, the prompt, every agent event (`events.jsonl`), `diff.patch`, `job.json` and the clone. To start a ticket over, add `--fresh`.
+Add `--local` to do everything except push, open the pull request and comment on Jira. `aidev publish POT-12` then publishes an approved job. It also retries a publish that failed, for example because Bitbucket was down.
+
+Everything is kept in `workspace/jobs/POT-12/`: the ticket, `job.json` (every round's result and verdict), `diff.patch`, the clone in `work/`, a fresh clone per round in `review-N/`, and in `logs/` every prompt, agent event stream and check output. To start a ticket over, add `--fresh`.
 
 The project is picked by matching the issue key to `jiraProject` in `projects/*.yaml`. You can also pass `--project <name>` or `--project path/to/config.yaml`.
 
 ## The sandbox
 
-- Each agent run gets a fresh container with only the job's folders mounted: `/work` (the clone) and `/claude` (the Claude session).
+- Each agent run gets a fresh container with only the job's folders mounted: `/work` (the clone) and, for the worker, `/claude` (its Claude session).
 - The container runs as a non-root user, with all Linux capabilities dropped, `no-new-privileges`, CPU, memory and process limits, and no Docker socket.
 - The only secret inside is the Claude token. Jira and Bitbucket credentials stay with the orchestrator, which does all pushing.
 - The container can still reach the network, including services on your PC. Phase 4 adds an egress allowlist.

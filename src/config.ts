@@ -84,11 +84,13 @@ export interface ProjectConfig {
   /** Shell commands run from the repo root. All must pass before a pull request is opened. */
   checks: string[];
   worker: RoleConfig;
+  reviewer: RoleConfig;
   limits: Limits;
 }
 
 // The strongest model a subscription includes: Fable needs paid usage credits (API error credits_required).
 export const DEFAULT_ROLE: RoleConfig = { model: 'opus', fallbackModel: 'sonnet', maxTurns: 200, timeoutMinutes: 90 };
+export const DEFAULT_REVIEWER: RoleConfig = { ...DEFAULT_ROLE, maxTurns: 100, timeoutMinutes: 45 };
 export const DEFAULT_LIMITS: Limits = { cpus: 4, memory: '8g', pids: 2048 };
 
 type Obj = Record<string, unknown>;
@@ -126,19 +128,21 @@ function asOneOf<T extends string>(value: unknown, label: string, allowed: reado
 
 function asStrList(value: unknown, label: string): string[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) throw new Error(`${label} must be a list of strings`);
-  return value;
+  // YAML reads an unquoted `false` or `42` as a boolean or number, but as a command it's text.
+  const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+  if (!Array.isArray(value) || !value.every(scalar)) throw new Error(`${label} must be a list of commands`);
+  return value.map(String);
 }
 
-function parseRole(value: unknown, label: string): RoleConfig {
+function parseRole(value: unknown, label: string, defaults: RoleConfig): RoleConfig {
   const raw = asObj(value, label);
   return {
-    model: asStr(raw.model, `${label}.model`, DEFAULT_ROLE.model),
+    model: asStr(raw.model, `${label}.model`, defaults.model),
     // An explicit empty fallbackModel turns the fallback off.
-    fallbackModel: raw.fallbackModel === '' ? undefined : asStr(raw.fallbackModel, `${label}.fallbackModel`, DEFAULT_ROLE.fallbackModel),
+    fallbackModel: raw.fallbackModel === '' ? undefined : asStr(raw.fallbackModel, `${label}.fallbackModel`, defaults.fallbackModel),
     effort: asOneOf(raw.effort, `${label}.effort`, EFFORTS),
-    maxTurns: asNum(raw.maxTurns, `${label}.maxTurns`, DEFAULT_ROLE.maxTurns),
-    timeoutMinutes: asNum(raw.timeoutMinutes, `${label}.timeoutMinutes`, DEFAULT_ROLE.timeoutMinutes),
+    maxTurns: asNum(raw.maxTurns, `${label}.maxTurns`, defaults.maxTurns),
+    timeoutMinutes: asNum(raw.timeoutMinutes, `${label}.timeoutMinutes`, defaults.timeoutMinutes),
   };
 }
 
@@ -162,7 +166,8 @@ export function parseProject(file: string, data: unknown): ProjectConfig {
       },
       image: asStr(raw.image, 'image'),
       checks: asStrList(raw.checks, 'checks'),
-      worker: parseRole(raw.worker, 'worker'),
+      worker: parseRole(raw.worker, 'worker', DEFAULT_ROLE),
+      reviewer: parseRole(raw.reviewer, 'reviewer', DEFAULT_REVIEWER),
       limits: {
         cpus: asNum(limits.cpus, 'limits.cpus', DEFAULT_LIMITS.cpus),
         memory,
@@ -222,18 +227,21 @@ export function assertIssueKey(key: string): void {
 
 export function jobPaths(key: string) {
   const dir = path.join(WORKSPACE, 'jobs', key);
+  const logs = path.join(dir, 'logs');
   return {
     dir,
+    /** The worker's clone, kept across review rounds. */
     work: path.join(dir, 'work'),
+    /** The worker's CLAUDE_CONFIG_DIR, so later rounds can --resume its session. */
     claude: path.join(dir, 'claude'),
-    events: path.join(dir, 'events.jsonl'),
-    workerLog: path.join(dir, 'worker.log'),
     ticket: path.join(dir, 'ticket.json'),
-    workerPrompt: path.join(dir, 'worker-prompt.md'),
-    workerResult: path.join(dir, 'worker-result.md'),
-    diff: path.join(dir, 'diff.patch'),
-    uncommitted: path.join(dir, 'uncommitted.patch'),
     meta: path.join(dir, 'job.json'),
+    diff: path.join(dir, 'diff.patch'),
+    logs,
+    /** Per-round files such as worker-1.jsonl, checks-1.log and review-1.prompt.md. */
+    log: (name: string) => path.join(logs, name),
+    /** A fresh clone of the worker's commit, where round N's checks and review run. */
+    review: (round: number) => path.join(dir, `review-${round}`),
   };
 }
 
